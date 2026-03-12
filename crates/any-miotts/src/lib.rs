@@ -5,9 +5,10 @@
 
 pub use any_miotts_core::backend::{Backend, ModelComponent, TensorData};
 pub use any_miotts_core::device::{DeviceInfo, DeviceKind};
-pub use any_miotts_core::engine::TtsEngine;
+pub use any_miotts_core::engine::{SynthesisEvent, TtsEngine};
 pub use any_miotts_core::error::TtsError;
 pub use any_miotts_core::sampling::GenerateParams;
+pub use any_miotts_core::sentence::SentenceSplitter;
 
 pub use any_miotts_candle::backend::CandleBackend;
 pub use any_miotts_candle::discovery::discover_devices;

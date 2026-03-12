@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc;
 
 use tracing::{debug, info};
 
@@ -7,6 +8,21 @@ use crate::backend::{Backend, LoadedModel, ModelComponent, TensorData};
 use crate::error::TtsError;
 use crate::sampling::{self, GenerateParams};
 use crate::scheduler::{self, Assignment};
+use crate::sentence::SentenceSplitter;
+
+/// Events emitted by the streaming synthesis API.
+#[derive(Debug, Clone)]
+pub enum SynthesisEvent {
+    /// A single sentence has been synthesized.
+    SentenceAudio {
+        /// The text of the sentence that was synthesized.
+        text: String,
+        /// PCM f32 samples at the engine's sample rate.
+        pcm: Vec<f32>,
+    },
+    /// All sentences have been synthesized.
+    Done,
+}
 
 /// Unified TTS engine that dispatches to the best backend per component.
 pub struct TtsEngine {
@@ -162,6 +178,49 @@ impl TtsEngine {
             pcm.len() as f32 / self.sample_rate as f32
         );
         Ok(pcm)
+    }
+
+    /// Streaming synthesis: split text into sentences and synthesize each one,
+    /// sending PCM chunks over a channel as each sentence completes.
+    ///
+    /// Returns a `Receiver` that yields `SynthesisEvent`s. The synthesis runs
+    /// on the calling thread (blocking), so this is best called from a
+    /// dedicated thread or `spawn_blocking`.
+    pub fn synthesize_streaming(&self, text: &str) -> mpsc::Receiver<Result<SynthesisEvent, TtsError>> {
+        let (tx, rx) = mpsc::channel();
+        let sentences = SentenceSplitter::split_all(text);
+
+        info!(
+            "Streaming synthesis: {} sentence(s) from {} chars",
+            sentences.len(),
+            text.len()
+        );
+
+        for sentence in sentences {
+            if sentence.trim().is_empty() {
+                continue;
+            }
+            info!("Synthesizing sentence: {:?}", sentence);
+            match self.synthesize(&sentence) {
+                Ok(pcm) => {
+                    let event = SynthesisEvent::SentenceAudio {
+                        text: sentence,
+                        pcm,
+                    };
+                    if tx.send(Ok(event)).is_err() {
+                        // Receiver dropped, stop early
+                        return rx;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e));
+                    return rx;
+                }
+            }
+        }
+
+        let _ = tx.send(Ok(SynthesisEvent::Done));
+        rx
     }
 
     /// Autoregressive token generation using LFM2 backend.

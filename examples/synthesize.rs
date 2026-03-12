@@ -3,11 +3,12 @@
 //! Usage:
 //!   cargo run -p any-miotts --features candle-cuda --example synthesize -- "こんにちは" --out /tmp/test.wav
 //!   cargo run -p any-miotts --example synthesize -- "Hello world" --wav ref.wav --out output.wav
+//!   cargo run -p any-miotts --example synthesize -- "First. Second. Third." --stream
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use any_miotts::TtsError;
+use any_miotts::{SynthesisEvent, TtsError};
 
 #[tokio::main]
 async fn main() -> Result<(), TtsError> {
@@ -19,13 +20,14 @@ async fn main() -> Result<(), TtsError> {
         .init();
 
     let args: Vec<String> = std::env::args().collect();
-    let (text, wav_path, out_path) = parse_args(&args);
+    let parsed = parse_args(&args);
 
-    tracing::info!("Text: {text}");
-    tracing::info!("Reference WAV: {}", wav_path.display());
+    tracing::info!("Text: {}", parsed.text);
+    tracing::info!("Reference WAV: {}", parsed.wav.display());
+    tracing::info!("Streaming: {}", parsed.stream);
 
     let t0 = Instant::now();
-    let engine = any_miotts::initialize(&wav_path).await?;
+    let engine = any_miotts::initialize(&parsed.wav).await?;
     let sample_rate = engine.sample_rate();
     tracing::info!("Engine initialized in {:.1}s", t0.elapsed().as_secs_f32());
 
@@ -37,8 +39,23 @@ async fn main() -> Result<(), TtsError> {
         t_warm.elapsed().as_secs_f64() * 1000.0
     );
 
+    if parsed.stream {
+        synthesize_streaming(&engine, &parsed.text, sample_rate as u32, parsed.out.as_deref())?;
+    } else {
+        synthesize_batch(&engine, &parsed.text, sample_rate as u32, parsed.out.as_deref())?;
+    }
+
+    Ok(())
+}
+
+fn synthesize_batch(
+    engine: &any_miotts::TtsEngine,
+    text: &str,
+    sample_rate: u32,
+    out_path: Option<&std::path::Path>,
+) -> Result<(), TtsError> {
     let t1 = Instant::now();
-    let pcm = engine.synthesize(&text)?;
+    let pcm = engine.synthesize(text)?;
     let dur = t1.elapsed();
     let audio_secs = pcm.len() as f32 / sample_rate as f32;
     tracing::info!(
@@ -49,11 +66,70 @@ async fn main() -> Result<(), TtsError> {
     );
 
     if let Some(path) = out_path {
-        write_wav(&path, &pcm, sample_rate as u32);
+        write_wav(path, &pcm, sample_rate);
         tracing::info!("Wrote {}", path.display());
     } else {
         tracing::info!("Playing audio...");
-        play_pcm(&pcm, sample_rate as u32);
+        play_pcm(&pcm, sample_rate);
+    }
+
+    Ok(())
+}
+
+fn synthesize_streaming(
+    engine: &any_miotts::TtsEngine,
+    text: &str,
+    sample_rate: u32,
+    out_path: Option<&std::path::Path>,
+) -> Result<(), TtsError> {
+    let t1 = Instant::now();
+    let rx = engine.synthesize_streaming(text);
+
+    let mut all_pcm = Vec::new();
+    let mut sentence_idx = 0usize;
+
+    for event in rx {
+        match event? {
+            SynthesisEvent::SentenceAudio { text, pcm } => {
+                let audio_secs = pcm.len() as f32 / sample_rate as f32;
+                tracing::info!(
+                    "[sentence {}] {:.2}s audio for: {:?}",
+                    sentence_idx,
+                    audio_secs,
+                    text
+                );
+
+                if out_path.is_none() {
+                    // Play each chunk immediately for low-latency streaming
+                    tracing::info!("Playing sentence {}...", sentence_idx);
+                    play_pcm(&pcm, sample_rate);
+                }
+
+                all_pcm.extend_from_slice(&pcm);
+                sentence_idx += 1;
+            }
+            SynthesisEvent::Done => {
+                tracing::info!("Streaming synthesis complete.");
+            }
+        }
+    }
+
+    let dur = t1.elapsed();
+    let total_audio_secs = all_pcm.len() as f32 / sample_rate as f32;
+    tracing::info!(
+        "Total: {:.2}s audio in {:.2}s (RTF={:.3})",
+        total_audio_secs,
+        dur.as_secs_f32(),
+        if total_audio_secs > 0.0 {
+            dur.as_secs_f32() / total_audio_secs
+        } else {
+            0.0
+        },
+    );
+
+    if let Some(path) = out_path {
+        write_wav(path, &all_pcm, sample_rate);
+        tracing::info!("Wrote {}", path.display());
     }
 
     Ok(())
@@ -102,10 +178,18 @@ fn play_pcm(pcm: &[f32], sample_rate: u32) {
     sink.sleep_until_end();
 }
 
-fn parse_args(args: &[String]) -> (String, PathBuf, Option<PathBuf>) {
+struct ParsedArgs {
+    text: String,
+    wav: PathBuf,
+    out: Option<PathBuf>,
+    stream: bool,
+}
+
+fn parse_args(args: &[String]) -> ParsedArgs {
     let mut text = None;
     let mut wav = PathBuf::from("reference.wav");
     let mut out = None;
+    let mut stream = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -118,9 +202,12 @@ fn parse_args(args: &[String]) -> (String, PathBuf, Option<PathBuf>) {
                 i += 1;
                 out = Some(PathBuf::from(&args[i]));
             }
+            "--stream" => {
+                stream = true;
+            }
             "--help" | "-h" => {
                 eprintln!(
-                    "Usage: synthesize <TEXT> [--wav <ref.wav>] [--out <output.wav>]"
+                    "Usage: synthesize <TEXT> [--wav <ref.wav>] [--out <output.wav>] [--stream]"
                 );
                 std::process::exit(0);
             }
@@ -134,9 +221,14 @@ fn parse_args(args: &[String]) -> (String, PathBuf, Option<PathBuf>) {
     }
 
     let text = text.unwrap_or_else(|| {
-        eprintln!("Usage: synthesize <TEXT> [--wav <ref.wav>] [--out <output.wav>]");
+        eprintln!("Usage: synthesize <TEXT> [--wav <ref.wav>] [--out <output.wav>] [--stream]");
         std::process::exit(1);
     });
 
-    (text, wav, out)
+    ParsedArgs {
+        text,
+        wav,
+        out,
+        stream,
+    }
 }

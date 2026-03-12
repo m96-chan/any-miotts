@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  # ---------- Feature flag matrix ----------
+  # Tests multiple feature combinations to ensure each backend compiles
+  # and the core tests pass under every configuration.
+  #
+  # Feature flags available:
+  #   candle-cpu   (default) — Candle backend, CPU-only
+  #   candle-cuda           — Candle backend with CUDA acceleration (check-only in CI, no GPU)
+  #   candle-metal          — Candle backend with Metal acceleration (macOS only)
+  #   llamacpp              — llama.cpp backend for LFM2 (GGUF quantised)
+  #   llamacpp-opencl       — llama.cpp with OpenCL GPU offload
+  #   coreml                — CoreML backend for MioCodec (Apple ANE)
+  #   qnn                   — QNN/TFLite backend for MioCodec (Qualcomm Hexagon NPU)
+  #   apple                 — meta: candle-metal + coreml
+  #   desktop-nvidia        — meta: candle-cuda
+  #   android-qualcomm      — meta: llamacpp-opencl + qnn
+
+  check:
+    name: "check (${{ matrix.name }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default (candle-cpu)
+            features: ""
+            cargo_args: ""
+          - name: candle-cuda (check only)
+            features: "candle-cuda"
+            cargo_args: ""
+          - name: llamacpp
+            features: "llamacpp"
+            cargo_args: ""
+          - name: coreml
+            features: "coreml"
+            cargo_args: ""
+          - name: qnn
+            features: "qnn"
+            cargo_args: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.name }}-
+            ${{ runner.os }}-cargo-
+
+      - name: cargo check
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo check --workspace --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+          else
+            cargo check --workspace ${{ matrix.cargo_args }}
+          fi
+
+      - name: cargo clippy
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo clippy --workspace --all-targets --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+          else
+            cargo clippy --workspace --all-targets ${{ matrix.cargo_args }}
+          fi
+
+      - name: cargo test
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo test --workspace --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+          else
+            cargo test --workspace ${{ matrix.cargo_args }}
+          fi
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check

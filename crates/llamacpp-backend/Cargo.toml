@@ -1,0 +1,18 @@
+[package]
+name = "any-miotts-llamacpp"
+version = "0.1.0"
+description = "llama.cpp backend (OpenCL/CPU) for LFM2 inference in any-miotts"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+any-miotts-core = { workspace = true }
+llama-cpp-2 = "0.1"
+tracing = { workspace = true }
+
+[features]
+default = []
+# Enable OpenCL GPU offload (for Qualcomm Adreno, Mali, etc.)
+opencl = []

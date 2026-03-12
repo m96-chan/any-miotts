@@ -12,6 +12,11 @@ pub use any_miotts_core::sampling::GenerateParams;
 pub use any_miotts_candle::backend::CandleBackend;
 pub use any_miotts_candle::discovery::discover_devices;
 
+#[cfg(feature = "llamacpp")]
+pub use any_miotts_llamacpp::backend::{LlamaCppBackend, LlamaCppConfig};
+#[cfg(feature = "llamacpp")]
+pub use any_miotts_llamacpp::discovery as llamacpp_discovery;
+
 use std::path::Path;
 
 use tracing::info;
@@ -45,6 +50,20 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
             first_paths = backend.paths_ref().cloned();
         }
         backends.push(Box::new(backend));
+    }
+
+    // When the llamacpp feature is enabled, add a LlamaCppBackend for LFM2.
+    // This allows the scheduler to prefer llama.cpp for LFM2 on devices
+    // where it performs better (e.g. Android with OpenCL GPU).
+    #[cfg(feature = "llamacpp")]
+    {
+        let llamacpp = LlamaCppBackend::with_defaults();
+        info!(
+            "llama.cpp backend available: {} ({})",
+            llamacpp.name(),
+            llamacpp.device_info()
+        );
+        backends.push(Box::new(llamacpp));
     }
 
     let paths = first_paths

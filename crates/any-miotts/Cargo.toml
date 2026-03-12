@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 any-miotts-core = { workspace = true }
 any-miotts-candle = { workspace = true }
+any-miotts-llamacpp = { workspace = true, optional = true }
 candle-miotts = { path = "../../../candle-miotts" }
 tokenizers = { workspace = true }
 serde_json = { workspace = true }
@@ -28,9 +29,14 @@ candle-cpu = ["any-miotts-candle/cpu"]
 candle-cuda = ["any-miotts-candle/cuda"]
 candle-metal = ["any-miotts-candle/metal"]
 
+# llama.cpp backend (LFM2 only, GGUF quantised)
+llamacpp = ["dep:any-miotts-llamacpp"]
+llamacpp-opencl = ["llamacpp", "any-miotts-llamacpp/opencl"]
+
 # Platform meta-features
 apple = ["candle-metal"]
 desktop-nvidia = ["candle-cuda"]
+android-qualcomm = ["llamacpp-opencl"]
 
 [[example]]
 name = "synthesize"

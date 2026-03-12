@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/candle-backend",
+    "crates/llamacpp-backend",
     "crates/any-miotts",
 ]
 
@@ -15,6 +16,7 @@ repository = "https://github.com/m96-chan/any-miotts"
 [workspace.dependencies]
 any-miotts-core = { path = "crates/core" }
 any-miotts-candle = { path = "crates/candle-backend" }
+any-miotts-llamacpp = { path = "crates/llamacpp-backend" }
 candle-core = { version = "0.9" }
 candle-nn = { version = "0.9" }
 safetensors = "0.5"

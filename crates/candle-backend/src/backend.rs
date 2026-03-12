@@ -17,6 +17,9 @@ use any_miotts_core::backend::{
 use any_miotts_core::device::DeviceInfo;
 use any_miotts_core::error::TtsError;
 
+/// Re-export ModelPaths for consumers.
+pub type CandleModelPaths = ModelPaths;
+
 /// Candle-based backend supporting CUDA, Metal, and CPU.
 pub struct CandleBackend {
     device_info: DeviceInfo,
@@ -373,13 +376,113 @@ impl Backend for CandleBackend {
 
     fn benchmark(
         &self,
-        _model: &dyn LoadedModel,
-        _component: ModelComponent,
+        model: &dyn LoadedModel,
+        component: ModelComponent,
     ) -> Result<BenchmarkResult, TtsError> {
-        // Phase 2: implement actual benchmarking
-        Err(TtsError::Unsupported(format!(
-            "{}: benchmark not yet implemented",
-            self.name()
-        )))
+        use std::time::Instant;
+
+        const WARMUP: usize = 3;
+        const MEASURED: usize = 5;
+
+        // Run a tiny forward pass with dummy data to measure throughput.
+        match component {
+            ModelComponent::Lfm2 => {
+                let lfm2 = model
+                    .as_any()
+                    .downcast_ref::<LoadedLfm2>()
+                    .ok_or_else(|| TtsError::Model("Expected LoadedLfm2".into()))?;
+
+                // Tiny prefill with 4 tokens
+                let dummy_ids = Tensor::from_vec(vec![1u32; 4], (1, 4), &self.device)
+                    .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
+
+                for _ in 0..WARMUP {
+                    let (mut cs, mut kv) = lfm2.model.init_state();
+                    let _ = lfm2.model.forward(&dummy_ids, &mut cs, &mut kv, 0)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                }
+
+                let mut total = std::time::Duration::ZERO;
+                for _ in 0..MEASURED {
+                    let (mut cs, mut kv) = lfm2.model.init_state();
+                    let start = Instant::now();
+                    let _ = lfm2.model.forward(&dummy_ids, &mut cs, &mut kv, 0)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                    total += start.elapsed();
+                }
+
+                Ok(BenchmarkResult {
+                    component,
+                    avg_duration: total / MEASURED as u32,
+                    iterations: MEASURED,
+                })
+            }
+
+            ModelComponent::MioCodec => {
+                let miocodec = model
+                    .as_any()
+                    .downcast_ref::<LoadedMioCodec>()
+                    .ok_or_else(|| TtsError::Model("Expected LoadedMioCodec".into()))?;
+
+                // Dummy: 8 codec tokens + zero speaker embedding
+                let dummy_tokens = Tensor::from_vec(vec![0u32; 8], (8,), &self.device)
+                    .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
+                let dummy_spk = Tensor::zeros((1, 128), DType::F32, &self.device)
+                    .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
+
+                for _ in 0..WARMUP {
+                    let _ = miocodec.model.forward_wave(&dummy_tokens, &dummy_spk)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                }
+
+                let mut total = std::time::Duration::ZERO;
+                for _ in 0..MEASURED {
+                    let start = Instant::now();
+                    let _ = miocodec.model.forward_wave(&dummy_tokens, &dummy_spk)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                    total += start.elapsed();
+                }
+
+                Ok(BenchmarkResult {
+                    component,
+                    avg_duration: total / MEASURED as u32,
+                    iterations: MEASURED,
+                })
+            }
+
+            ModelComponent::SpeakerEncoder => {
+                let encoder = model
+                    .as_any()
+                    .downcast_ref::<LoadedSpeakerEncoder>()
+                    .ok_or_else(|| TtsError::Model("Expected LoadedSpeakerEncoder".into()))?;
+
+                // Dummy: 1 second of silence at 16kHz
+                let dummy_wav = Tensor::zeros((1, 16000), DType::F32, &self.device)
+                    .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
+
+                for _ in 0..WARMUP {
+                    let ssl = encoder.wavlm.extract_global_features(&dummy_wav)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                    let _ = encoder.global_encoder.forward(&ssl)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                }
+
+                let mut total = std::time::Duration::ZERO;
+                for _ in 0..MEASURED {
+                    let start = Instant::now();
+                    let ssl = encoder.wavlm.extract_global_features(&dummy_wav)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                    let _ = encoder.global_encoder.forward(&ssl)
+                        .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
+                    total += start.elapsed();
+                }
+
+                Ok(BenchmarkResult {
+                    component,
+                    avg_duration: total / MEASURED as u32,
+                    iterations: MEASURED,
+                })
+            }
+        }
     }
 }

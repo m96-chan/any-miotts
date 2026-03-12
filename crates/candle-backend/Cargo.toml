@@ -26,4 +26,4 @@ tracing = { workspace = true }
 default = []
 cpu = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-miotts/cuda"]
-metal = ["candle-core/metal", "candle-nn/metal"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-miotts/metal"]

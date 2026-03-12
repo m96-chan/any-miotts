@@ -12,6 +12,21 @@ pub enum DeviceKind {
     QnnNpu,
 }
 
+impl DeviceKind {
+    /// Whether this device kind is a GPU.
+    pub fn is_gpu(&self) -> bool {
+        matches!(
+            self,
+            Self::CudaGpu | Self::MetalGpu | Self::OpenClGpu | Self::VulkanGpu
+        )
+    }
+
+    /// Whether this device kind is an NPU / accelerator.
+    pub fn is_npu(&self) -> bool {
+        matches!(self, Self::CoreMlAne | Self::QnnNpu)
+    }
+}
+
 impl fmt::Display for DeviceKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -35,10 +50,39 @@ pub struct DeviceInfo {
     pub name: String,
     /// Device index (for multi-GPU systems).
     pub index: usize,
+    /// Total device memory in bytes, if known.
+    pub memory_bytes: Option<u64>,
+}
+
+impl DeviceInfo {
+    /// Create a new DeviceInfo with no memory info.
+    pub fn new(kind: DeviceKind, name: String, index: usize) -> Self {
+        Self {
+            kind,
+            name,
+            index,
+            memory_bytes: None,
+        }
+    }
+
+    /// Builder-style setter for memory.
+    pub fn with_memory(mut self, bytes: u64) -> Self {
+        self.memory_bytes = Some(bytes);
+        self
+    }
+
+    /// Memory in MiB, if known.
+    pub fn memory_mib(&self) -> Option<u64> {
+        self.memory_bytes.map(|b| b / (1024 * 1024))
+    }
 }
 
 impl fmt::Display for DeviceInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}[{}]: {}", self.kind, self.index, self.name)
+        write!(f, "{}[{}]: {}", self.kind, self.index, self.name)?;
+        if let Some(mib) = self.memory_mib() {
+            write!(f, " ({mib} MiB)")?;
+        }
+        Ok(())
     }
 }

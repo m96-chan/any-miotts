@@ -19,25 +19,38 @@ use tracing::info;
 /// Initialize the TTS engine with automatic backend/device selection.
 ///
 /// 1. Discovers available devices (CUDA, Metal, CPU)
-/// 2. Creates a CandleBackend for the best device
+/// 2. Creates a CandleBackend for each device
 /// 3. Downloads models if needed
-/// 4. Loads all model components
-/// 5. Computes speaker embedding from reference wav
+/// 4. Auto-assigns components to backends using hard rules + preference scoring
+/// 5. Loads all model components
+/// 6. Computes speaker embedding from reference wav
 pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
     info!("Initializing any-miotts engine...");
 
-    // Discover devices and pick the best one
-    let devices = discover_devices();
-    let (device_info, device) = devices.into_iter().next().unwrap(); // Best device is first
-    info!("Selected device: {}", device_info);
+    // Discover all available devices
+    let discovered = discover_devices();
+    info!("Discovered {} device(s):", discovered.len());
+    for (info, _) in &discovered {
+        info!("  - {}", info);
+    }
 
-    // Create backend and download models
-    let mut backend = CandleBackend::new(device_info, device);
-    backend.ensure_models().await?;
+    // Create a CandleBackend for each device and download models
+    let mut backends: Vec<Box<dyn Backend>> = Vec::new();
+    let mut first_paths: Option<any_miotts_candle::backend::CandleModelPaths> = None;
+
+    for (device_info, device) in discovered {
+        let mut backend = CandleBackend::new(device_info, device);
+        backend.ensure_models().await?;
+        if first_paths.is_none() {
+            first_paths = backend.paths_ref().cloned();
+        }
+        backends.push(Box::new(backend));
+    }
+
+    let paths = first_paths
+        .ok_or_else(|| TtsError::Model("No backends created".into()))?;
 
     // Load tokenizer
-    let paths = backend.paths_ref()
-        .ok_or_else(|| TtsError::Model("Models not downloaded".into()))?;
     let tokenizer = tokenizers::Tokenizer::from_file(&paths.lfm2_tokenizer)
         .map_err(|e| TtsError::Model(format!("Tokenizer: {e}")))?;
     info!("Tokenizer loaded ({} tokens)", tokenizer.get_vocab_size(true));
@@ -57,11 +70,11 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
     let eos_token_id = lfm2_config.eos_token_id;
     let sample_rate = miocodec_config.sample_rate;
 
-    // Build engine
+    // Build engine (auto-assigns components to best backends)
     let reference_wav = reference_wav.to_path_buf();
     let engine = tokio::task::spawn_blocking(move || {
         TtsEngine::build(
-            vec![Box::new(backend)],
+            backends,
             &reference_wav,
             tokenizer,
             eos_token_id,

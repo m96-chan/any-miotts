@@ -22,6 +22,11 @@ pub use any_miotts_coreml::backend::CoreMlBackend;
 #[cfg(feature = "coreml")]
 pub use any_miotts_coreml::discovery as coreml_discovery;
 
+#[cfg(feature = "qnn")]
+pub use any_miotts_qnn::backend::QnnBackend;
+#[cfg(feature = "qnn")]
+pub use any_miotts_qnn::discovery as qnn_discovery;
+
 use std::path::Path;
 
 use tracing::info;
@@ -83,6 +88,20 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
             coreml.device_info()
         );
         backends.push(Box::new(coreml));
+    }
+
+    // When the qnn feature is enabled, add a QnnBackend for MioCodec.
+    // On Qualcomm SoCs this offloads MioCodec decoding to the Hexagon NPU
+    // via TFLite with the QNN delegate, freeing the GPU for LFM2.
+    #[cfg(feature = "qnn")]
+    {
+        let qnn = QnnBackend::with_defaults();
+        info!(
+            "QNN backend available: {} ({})",
+            qnn.name(),
+            qnn.device_info()
+        );
+        backends.push(Box::new(qnn));
     }
 
     let paths = first_paths

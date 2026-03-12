@@ -12,6 +12,7 @@ any-miotts-core = { workspace = true }
 any-miotts-candle = { workspace = true }
 any-miotts-llamacpp = { workspace = true, optional = true }
 any-miotts-coreml = { workspace = true, optional = true }
+any-miotts-qnn = { workspace = true, optional = true }
 candle-miotts = { path = "../../../candle-miotts" }
 tokenizers = { workspace = true }
 serde_json = { workspace = true }
@@ -37,10 +38,13 @@ llamacpp-opencl = ["llamacpp", "any-miotts-llamacpp/opencl"]
 # CoreML backend (MioCodec only, Apple ANE)
 coreml = ["dep:any-miotts-coreml"]
 
+# QNN backend (MioCodec only, Qualcomm Hexagon NPU)
+qnn = ["dep:any-miotts-qnn"]
+
 # Platform meta-features
 apple = ["candle-metal", "coreml"]
 desktop-nvidia = ["candle-cuda"]
-android-qualcomm = ["llamacpp-opencl"]
+android-qualcomm = ["llamacpp-opencl", "qnn"]
 
 [[example]]
 name = "synthesize"

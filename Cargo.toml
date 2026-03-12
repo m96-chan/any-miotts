@@ -5,6 +5,7 @@ members = [
     "crates/candle-backend",
     "crates/llamacpp-backend",
     "crates/coreml-backend",
+    "crates/qnn-backend",
     "crates/any-miotts",
 ]
 
@@ -19,6 +20,7 @@ any-miotts-core = { path = "crates/core" }
 any-miotts-candle = { path = "crates/candle-backend" }
 any-miotts-llamacpp = { path = "crates/llamacpp-backend" }
 any-miotts-coreml = { path = "crates/coreml-backend" }
+any-miotts-qnn = { path = "crates/qnn-backend" }
 candle-core = { version = "0.9" }
 candle-nn = { version = "0.9" }
 safetensors = "0.5"

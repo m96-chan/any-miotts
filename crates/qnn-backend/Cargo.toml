@@ -1,0 +1,19 @@
+[package]
+name = "any-miotts-qnn"
+version = "0.1.0"
+description = "QNN/Hexagon NPU backend for MioCodec inference in any-miotts (Android only)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+any-miotts-core = { workspace = true }
+tracing = { workspace = true }
+
+# TFLite bindings are only useful on Android where QNN delegate is available.
+[target.'cfg(target_os = "android")'.dependencies]
+tflitec = "0.6"
+
+[features]
+default = []

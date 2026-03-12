@@ -1,0 +1,3 @@
+ai-edge-torch>=0.3.0
+torch>=2.1.0
+numpy>=1.24.0

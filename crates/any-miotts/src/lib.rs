@@ -105,25 +105,27 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
         backends.push(Box::new(qnn));
     }
 
-    let paths = first_paths
-        .ok_or_else(|| TtsError::Model("No backends created".into()))?;
+    let paths = first_paths.ok_or_else(|| TtsError::Model("No backends created".into()))?;
 
     // Load tokenizer
     let tokenizer = tokenizers::Tokenizer::from_file(&paths.lfm2_tokenizer)
         .map_err(|e| TtsError::Model(format!("Tokenizer: {e}")))?;
-    info!("Tokenizer loaded ({} tokens)", tokenizer.get_vocab_size(true));
+    info!(
+        "Tokenizer loaded ({} tokens)",
+        tokenizer.get_vocab_size(true)
+    );
 
     // Read LFM2 config for eos_token_id
     let config_str = std::fs::read_to_string(&paths.lfm2_config)
         .map_err(|e| TtsError::Model(format!("Read LFM2 config: {e}")))?;
-    let lfm2_config: candle_miotts::models::config::Lfm2Config =
-        serde_json::from_str(&config_str)
-            .map_err(|e| TtsError::Model(format!("Parse LFM2 config: {e}")))?;
+    let lfm2_config: candle_miotts::models::config::Lfm2Config = serde_json::from_str(&config_str)
+        .map_err(|e| TtsError::Model(format!("Parse LFM2 config: {e}")))?;
 
     // Read MioCodec config for sample_rate
     let miocodec_config_str = std::fs::read_to_string(&paths.miocodec_config)
         .map_err(|e| TtsError::Model(format!("Read MioCodec config: {e}")))?;
-    let miocodec_config = candle_miotts::models::config::MioCodecConfig::from_yaml(&miocodec_config_str);
+    let miocodec_config =
+        candle_miotts::models::config::MioCodecConfig::from_yaml(&miocodec_config_str);
 
     let eos_token_id = lfm2_config.eos_token_id;
     let sample_rate = miocodec_config.sample_rate;

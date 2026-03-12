@@ -91,10 +91,7 @@ pub fn load_model(model_path: &Path) -> Result<TfLiteModel, TtsError> {
         // TFLite will load the delegate shared library and route ops to the NPU.
         builder.add_external_delegate(
             qnn_delegate_path,
-            &[
-                ("backend_type", "htp"),
-                ("htp_performance_mode", "burst"),
-            ],
+            &[("backend_type", "htp"), ("htp_performance_mode", "burst")],
         );
         info!("QNN HTP delegate attached");
     } else {

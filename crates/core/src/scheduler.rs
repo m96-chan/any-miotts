@@ -283,7 +283,11 @@ mod tests {
 
         let assignment = auto_assign(&backends).unwrap();
         // LFM2 must NOT be assigned to NPU
-        assert_eq!(assignment.map[&ModelComponent::Lfm2], 1, "LFM2 should be on CPU, not NPU");
+        assert_eq!(
+            assignment.map[&ModelComponent::Lfm2],
+            1,
+            "LFM2 should be on CPU, not NPU"
+        );
     }
 
     #[test]
@@ -301,17 +305,15 @@ mod tests {
             Box::new(MockBackend::new(
                 "npu",
                 DeviceKind::CoreMlAne,
-                vec![
-                    ModelComponent::SpeakerEncoder,
-                    ModelComponent::MioCodec,
-                ],
+                vec![ModelComponent::SpeakerEncoder, ModelComponent::MioCodec],
             )),
         ];
 
         let assignment = auto_assign(&backends).unwrap();
         // MioCodec should prefer NPU
         assert_eq!(
-            assignment.map[&ModelComponent::MioCodec], 1,
+            assignment.map[&ModelComponent::MioCodec],
+            1,
             "MioCodec should prefer NPU"
         );
     }
@@ -361,7 +363,8 @@ mod tests {
         let assignment = auto_assign_with_benchmarks(&backends, &benchmarks).unwrap();
         // Benchmark says CPU is faster for MioCodec
         assert_eq!(
-            assignment.map[&ModelComponent::MioCodec], 0,
+            assignment.map[&ModelComponent::MioCodec],
+            0,
             "Benchmark should override preference"
         );
     }

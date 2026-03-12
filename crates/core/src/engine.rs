@@ -137,9 +137,8 @@ impl TtsEngine {
         let generated = self.generate_tokens(&input_ids, &params)?;
 
         // Step 3: Extract codec token indices
-        let codec_tokens = sampling::extract_codec_tokens(&generated, &|id| {
-            self.tokenizer.id_to_token(id)
-        });
+        let codec_tokens =
+            sampling::extract_codec_tokens(&generated, &|id| self.tokenizer.id_to_token(id));
         info!(
             "Generated {} codec tokens from {} raw tokens",
             codec_tokens.len(),
@@ -186,7 +185,10 @@ impl TtsEngine {
     /// Returns a `Receiver` that yields `SynthesisEvent`s. The synthesis runs
     /// on the calling thread (blocking), so this is best called from a
     /// dedicated thread or `spawn_blocking`.
-    pub fn synthesize_streaming(&self, text: &str) -> mpsc::Receiver<Result<SynthesisEvent, TtsError>> {
+    pub fn synthesize_streaming(
+        &self,
+        text: &str,
+    ) -> mpsc::Receiver<Result<SynthesisEvent, TtsError>> {
         let (tx, rx) = mpsc::channel();
         let sentences = SentenceSplitter::split_all(text);
 
@@ -243,8 +245,7 @@ impl TtsEngine {
         );
 
         if tracing::enabled!(tracing::Level::DEBUG) {
-            let mut indexed: Vec<(usize, f32)> =
-                logits.iter().copied().enumerate().collect();
+            let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
             indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
             let top5: Vec<String> = indexed[..5.min(indexed.len())]
                 .iter()

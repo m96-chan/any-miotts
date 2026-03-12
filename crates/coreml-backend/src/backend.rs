@@ -219,10 +219,9 @@ fn predict_coreml(
 
     // Create MLMultiArray for codec tokens (int32, shape [1, seq_len])
     let seq_len = tokens.len();
-    let token_shape: Vec<_> = vec![
-        unsafe { NSNumber::numberWithUnsignedInteger(1) },
-        unsafe { NSNumber::numberWithUnsignedInteger(seq_len) },
-    ];
+    let token_shape: Vec<_> = vec![unsafe { NSNumber::numberWithUnsignedInteger(1) }, unsafe {
+        NSNumber::numberWithUnsignedInteger(seq_len)
+    }];
     let token_shape_arr = objc2_foundation::NSArray::from_retained_slice(&token_shape);
 
     let token_array = unsafe {
@@ -236,24 +235,20 @@ fn predict_coreml(
 
     // Fill token data
     for (i, &tok) in tokens.iter().enumerate() {
-        let idx = vec![
-            unsafe { NSNumber::numberWithUnsignedInteger(0) },
-            unsafe { NSNumber::numberWithUnsignedInteger(i) },
-        ];
+        let idx = vec![unsafe { NSNumber::numberWithUnsignedInteger(0) }, unsafe {
+            NSNumber::numberWithUnsignedInteger(i)
+        }];
         let idx_arr = objc2_foundation::NSArray::from_retained_slice(&idx);
         unsafe {
-            token_array.setObject_atIndexedSubscript(
-                &NSNumber::numberWithInt(tok as i32),
-                &idx_arr,
-            );
+            token_array
+                .setObject_atIndexedSubscript(&NSNumber::numberWithInt(tok as i32), &idx_arr);
         }
     }
 
     // Create MLMultiArray for speaker embedding (float32, shape [1, 128])
-    let spk_shape: Vec<_> = vec![
-        unsafe { NSNumber::numberWithUnsignedInteger(1) },
-        unsafe { NSNumber::numberWithUnsignedInteger(128) },
-    ];
+    let spk_shape: Vec<_> = vec![unsafe { NSNumber::numberWithUnsignedInteger(1) }, unsafe {
+        NSNumber::numberWithUnsignedInteger(128)
+    }];
     let spk_shape_arr = objc2_foundation::NSArray::from_retained_slice(&spk_shape);
 
     let spk_array = unsafe {
@@ -267,26 +262,18 @@ fn predict_coreml(
 
     // Fill speaker embedding data
     for (i, &val) in speaker_embedding.iter().enumerate() {
-        let idx = vec![
-            unsafe { NSNumber::numberWithUnsignedInteger(0) },
-            unsafe { NSNumber::numberWithUnsignedInteger(i) },
-        ];
+        let idx = vec![unsafe { NSNumber::numberWithUnsignedInteger(0) }, unsafe {
+            NSNumber::numberWithUnsignedInteger(i)
+        }];
         let idx_arr = objc2_foundation::NSArray::from_retained_slice(&idx);
         unsafe {
-            spk_array.setObject_atIndexedSubscript(
-                &NSNumber::numberWithFloat(val),
-                &idx_arr,
-            );
+            spk_array.setObject_atIndexedSubscript(&NSNumber::numberWithFloat(val), &idx_arr);
         }
     }
 
     // Create feature values
-    let token_feature = unsafe {
-        MLFeatureValue::featureValueWithMultiArray(&token_array)
-    };
-    let spk_feature = unsafe {
-        MLFeatureValue::featureValueWithMultiArray(&spk_array)
-    };
+    let token_feature = unsafe { MLFeatureValue::featureValueWithMultiArray(&token_array) };
+    let spk_feature = unsafe { MLFeatureValue::featureValueWithMultiArray(&spk_array) };
 
     // Create feature provider
     let keys = vec![
@@ -305,10 +292,8 @@ fn predict_coreml(
     .map_err(|e| TtsError::Inference(format!("Create feature provider: {e}")))?;
 
     // Run prediction
-    let result = unsafe {
-        loaded.model.model.predictionFromFeatures_error(&provider)
-    }
-    .map_err(|e| TtsError::Inference(format!("CoreML prediction failed: {e}")))?;
+    let result = unsafe { loaded.model.model.predictionFromFeatures_error(&provider) }
+        .map_err(|e| TtsError::Inference(format!("CoreML prediction failed: {e}")))?;
 
     // Extract waveform output
     let output_name = NSString::from_str("waveform");

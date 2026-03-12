@@ -183,22 +183,18 @@ impl Backend for LlamaCppBackend {
         };
 
         info!("Initialising llama.cpp backend...");
-        let backend = LlamaBackend::init().map_err(|e| {
-            TtsError::Model(format!("Failed to initialise llama.cpp backend: {e}"))
-        })?;
+        let backend = LlamaBackend::init()
+            .map_err(|e| TtsError::Model(format!("Failed to initialise llama.cpp backend: {e}")))?;
 
         let model_params = {
-            let params = LlamaModelParams::default()
-                .with_n_gpu_layers(self.config.n_gpu_layers);
+            let params = LlamaModelParams::default().with_n_gpu_layers(self.config.n_gpu_layers);
             // LlamaModelParams requires pinning for safety.
             Box::pin(params)
         };
 
         info!("Loading GGUF model from {}", gguf_path.display());
-        let model =
-            LlamaModel::load_from_file(&backend, &gguf_path, &model_params).map_err(|e| {
-                TtsError::Model(format!("Failed to load GGUF model: {e}"))
-            })?;
+        let model = LlamaModel::load_from_file(&backend, &gguf_path, &model_params)
+            .map_err(|e| TtsError::Model(format!("Failed to load GGUF model: {e}")))?;
 
         let vocab_size = model.n_vocab();
         info!(
@@ -241,8 +237,7 @@ impl Backend for LlamaCppBackend {
         // model outlives the state (which the TtsEngine guarantees).
         let ctx = unsafe {
             let model_ref: &LlamaModel = &loaded.model;
-            let model_static: &'static LlamaModel =
-                &*(model_ref as *const LlamaModel);
+            let model_static: &'static LlamaModel = &*(model_ref as *const LlamaModel);
             model_static
                 .new_context(&loaded.backend, ctx_params)
                 .map_err(|e| TtsError::Inference(format!("Create llama context: {e}")))?

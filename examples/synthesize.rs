@@ -14,8 +14,7 @@ use any_miotts::{SynthesisEvent, TtsError};
 async fn main() -> Result<(), TtsError> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -40,9 +39,19 @@ async fn main() -> Result<(), TtsError> {
     );
 
     if parsed.stream {
-        synthesize_streaming(&engine, &parsed.text, sample_rate as u32, parsed.out.as_deref())?;
+        synthesize_streaming(
+            &engine,
+            &parsed.text,
+            sample_rate as u32,
+            parsed.out.as_deref(),
+        )?;
     } else {
-        synthesize_batch(&engine, &parsed.text, sample_rate as u32, parsed.out.as_deref())?;
+        synthesize_batch(
+            &engine,
+            &parsed.text,
+            sample_rate as u32,
+            parsed.out.as_deref(),
+        )?;
     }
 
     Ok(())
@@ -142,10 +151,7 @@ fn write_wav(path: &std::path::Path, pcm: &[f32], sample_rate: u32) {
         .iter()
         .map(|&s| (s * gain * 32767.0).clamp(-32768.0, 32767.0) as i16)
         .collect();
-    let data_bytes: Vec<u8> = samples_i16
-        .iter()
-        .flat_map(|s| s.to_le_bytes())
-        .collect();
+    let data_bytes: Vec<u8> = samples_i16.iter().flat_map(|s| s.to_le_bytes()).collect();
     let data_len = data_bytes.len() as u32;
     let file_len = 36 + data_len;
     let byte_rate: u32 = sample_rate * 2;

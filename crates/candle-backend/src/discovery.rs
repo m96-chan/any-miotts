@@ -38,10 +38,7 @@ pub fn discover_devices() -> Vec<(DeviceInfo, Device)> {
 
     // Always include CPU as fallback
     let cpu_name = cpu_name();
-    devices.push((
-        DeviceInfo::new(DeviceKind::Cpu, cpu_name, 0),
-        Device::Cpu,
-    ));
+    devices.push((DeviceInfo::new(DeviceKind::Cpu, cpu_name, 0), Device::Cpu));
 
     devices
 }

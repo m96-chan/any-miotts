@@ -25,7 +25,10 @@ pub fn sample_logits(logits: &[f32], params: &GenerateParams) -> u32 {
     }
 
     // Apply temperature
-    let scaled: Vec<f32> = logits.iter().map(|&l| l / params.temperature as f32).collect();
+    let scaled: Vec<f32> = logits
+        .iter()
+        .map(|&l| l / params.temperature as f32)
+        .collect();
 
     if params.top_p < 1.0 {
         sample_top_p(&scaled, params.top_p)

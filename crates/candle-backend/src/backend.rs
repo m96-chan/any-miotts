@@ -50,9 +50,9 @@ impl CandleBackend {
 
     /// Get the cached model paths (Result version for internal use).
     fn paths(&self) -> Result<&ModelPaths, TtsError> {
-        self.model_paths
-            .as_ref()
-            .ok_or_else(|| TtsError::Model("Models not downloaded yet. Call ensure_models() first.".into()))
+        self.model_paths.as_ref().ok_or_else(|| {
+            TtsError::Model("Models not downloaded yet. Call ensure_models() first.".into())
+        })
     }
 
     /// Get the cached model paths (Option version for external access).
@@ -74,8 +74,12 @@ pub struct LoadedLfm2 {
 }
 
 impl LoadedModel for LoadedLfm2 {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 pub struct LoadedMioCodec {
@@ -84,8 +88,12 @@ pub struct LoadedMioCodec {
 }
 
 impl LoadedModel for LoadedMioCodec {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 pub struct LoadedSpeakerEncoder {
@@ -94,8 +102,12 @@ pub struct LoadedSpeakerEncoder {
 }
 
 impl LoadedModel for LoadedSpeakerEncoder {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 // ── LFM2 state ─────────────────────────────────────────────────────
@@ -107,9 +119,15 @@ pub struct CandleLfm2State {
 }
 
 impl Lfm2State for CandleLfm2State {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
-    fn seq_offset(&self) -> usize { self.seq_offset }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn seq_offset(&self) -> usize {
+        self.seq_offset
+    }
 }
 
 // ── Backend trait implementation ───────────────────────────────────
@@ -155,8 +173,16 @@ impl Backend for CandleBackend {
                     config.num_hidden_layers, config.hidden_size, config.vocab_size
                 );
 
-                let dtype = if self.device.is_cuda() { DType::BF16 } else { DType::F32 };
-                info!("Loading LFM2 ({} files, {:?})...", paths.lfm2_safetensors.len(), dtype);
+                let dtype = if self.device.is_cuda() {
+                    DType::BF16
+                } else {
+                    DType::F32
+                };
+                info!(
+                    "Loading LFM2 ({} files, {:?})...",
+                    paths.lfm2_safetensors.len(),
+                    dtype
+                );
                 let vb = unsafe {
                     VarBuilder::from_mmaped_safetensors(
                         &paths.lfm2_safetensors,
@@ -176,7 +202,10 @@ impl Backend for CandleBackend {
                 let config_str = std::fs::read_to_string(&paths.miocodec_config)
                     .map_err(|e| TtsError::Model(format!("Read MioCodec config: {e}")))?;
                 let config = MioCodecConfig::from_yaml(&config_str);
-                info!("MioCodec config: {}Hz, n_fft={}", config.sample_rate, config.n_fft);
+                info!(
+                    "MioCodec config: {}Hz, n_fft={}",
+                    config.sample_rate, config.n_fft
+                );
 
                 info!("Loading MioCodec...");
                 let vb = unsafe {
@@ -348,13 +377,19 @@ impl Backend for CandleBackend {
         let spk_tensor = match speaker_embedding {
             TensorData::Native(any) => any
                 .downcast_ref::<Tensor>()
-                .ok_or_else(|| TtsError::Inference("Speaker embedding is not a candle Tensor".into()))?
+                .ok_or_else(|| {
+                    TtsError::Inference("Speaker embedding is not a candle Tensor".into())
+                })?
                 .clone(),
             TensorData::F32 { data, shape } => {
                 Tensor::from_vec(data.clone(), shape.as_slice(), &self.device)
                     .map_err(|e| TtsError::Inference(format!("Speaker tensor: {e}")))?
             }
-            _ => return Err(TtsError::Inference("Unexpected speaker embedding format".into())),
+            _ => {
+                return Err(TtsError::Inference(
+                    "Unexpected speaker embedding format".into(),
+                ))
+            }
         };
 
         let num_tokens = tokens.len();
@@ -398,7 +433,9 @@ impl Backend for CandleBackend {
 
                 for _ in 0..WARMUP {
                     let (mut cs, mut kv) = lfm2.model.init_state();
-                    let _ = lfm2.model.forward(&dummy_ids, &mut cs, &mut kv, 0)
+                    let _ = lfm2
+                        .model
+                        .forward(&dummy_ids, &mut cs, &mut kv, 0)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                 }
 
@@ -406,7 +443,9 @@ impl Backend for CandleBackend {
                 for _ in 0..MEASURED {
                     let (mut cs, mut kv) = lfm2.model.init_state();
                     let start = Instant::now();
-                    let _ = lfm2.model.forward(&dummy_ids, &mut cs, &mut kv, 0)
+                    let _ = lfm2
+                        .model
+                        .forward(&dummy_ids, &mut cs, &mut kv, 0)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                     total += start.elapsed();
                 }
@@ -431,14 +470,18 @@ impl Backend for CandleBackend {
                     .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
 
                 for _ in 0..WARMUP {
-                    let _ = miocodec.model.forward_wave(&dummy_tokens, &dummy_spk)
+                    let _ = miocodec
+                        .model
+                        .forward_wave(&dummy_tokens, &dummy_spk)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                 }
 
                 let mut total = std::time::Duration::ZERO;
                 for _ in 0..MEASURED {
                     let start = Instant::now();
-                    let _ = miocodec.model.forward_wave(&dummy_tokens, &dummy_spk)
+                    let _ = miocodec
+                        .model
+                        .forward_wave(&dummy_tokens, &dummy_spk)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                     total += start.elapsed();
                 }
@@ -461,18 +504,26 @@ impl Backend for CandleBackend {
                     .map_err(|e| TtsError::Inference(format!("Benchmark tensor: {e}")))?;
 
                 for _ in 0..WARMUP {
-                    let ssl = encoder.wavlm.extract_global_features(&dummy_wav)
+                    let ssl = encoder
+                        .wavlm
+                        .extract_global_features(&dummy_wav)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
-                    let _ = encoder.global_encoder.forward(&ssl)
+                    let _ = encoder
+                        .global_encoder
+                        .forward(&ssl)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                 }
 
                 let mut total = std::time::Duration::ZERO;
                 for _ in 0..MEASURED {
                     let start = Instant::now();
-                    let ssl = encoder.wavlm.extract_global_features(&dummy_wav)
+                    let ssl = encoder
+                        .wavlm
+                        .extract_global_features(&dummy_wav)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
-                    let _ = encoder.global_encoder.forward(&ssl)
+                    let _ = encoder
+                        .global_encoder
+                        .forward(&ssl)
                         .map_err(|e| TtsError::Inference(format!("Benchmark forward: {e}")))?;
                     total += start.elapsed();
                 }

@@ -95,14 +95,10 @@ pub fn load_model(model_path: &Path) -> Result<CoreMlModel, TtsError> {
         config.setComputeUnits(objc2_core_ml::MLComputeUnits::All);
     }
 
-    let url = unsafe {
-        NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path_str))
-    };
+    let url = unsafe { NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path_str)) };
 
-    let model = unsafe {
-        MLModel::modelWithContentsOfURL_configuration_error(&url, &config)
-    }
-    .map_err(|e| TtsError::Model(format!("Failed to load CoreML model: {e}")))?;
+    let model = unsafe { MLModel::modelWithContentsOfURL_configuration_error(&url, &config) }
+        .map_err(|e| TtsError::Model(format!("Failed to load CoreML model: {e}")))?;
 
     info!("CoreML model loaded successfully");
 

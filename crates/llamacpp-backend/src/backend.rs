@@ -38,6 +38,10 @@ pub struct LlamaCppConfig {
     pub n_batch: u32,
     /// Number of threads for CPU compute.
     pub n_threads: u32,
+    /// Path to GGUF model file or directory containing .gguf files.
+    /// If `None`, `load_model()` will check `MIOTTS_GGUF_PATH` env var,
+    /// then fall back to the `model_dir` argument.
+    pub gguf_path: Option<std::path::PathBuf>,
 }
 
 impl Default for LlamaCppConfig {
@@ -47,6 +51,7 @@ impl Default for LlamaCppConfig {
             n_ctx: 4096,
             n_batch: 512,
             n_threads: 4,
+            gguf_path: None,
         }
     }
 }
@@ -174,9 +179,29 @@ impl Backend for LlamaCppBackend {
             )));
         }
 
-        // Locate the GGUF file.  Convention: model_dir points to either
-        // a directory containing *.gguf or directly to a .gguf file.
-        let gguf_path = if model_dir.is_file() {
+        // Locate the GGUF file.  Priority:
+        // 1. config.gguf_path (explicit)
+        // 2. MIOTTS_GGUF_PATH env var
+        // 3. model_dir argument (file or directory)
+        let gguf_path = if let Some(ref p) = self.config.gguf_path {
+            if p.is_file() {
+                p.clone()
+            } else {
+                find_gguf_in_dir(p)?
+            }
+        } else if let Ok(env_path) = std::env::var("MIOTTS_GGUF_PATH") {
+            let p = std::path::PathBuf::from(env_path);
+            if p.is_file() {
+                p
+            } else {
+                find_gguf_in_dir(&p)?
+            }
+        } else if model_dir.as_os_str().is_empty() {
+            return Err(TtsError::Model(
+                "No GGUF path: set config.gguf_path, MIOTTS_GGUF_PATH env var, or pass model_dir"
+                    .into(),
+            ));
+        } else if model_dir.is_file() {
             model_dir.to_path_buf()
         } else {
             find_gguf_in_dir(model_dir)?

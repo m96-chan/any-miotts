@@ -11,6 +11,7 @@ repository.workspace = true
 any-miotts-core = { workspace = true }
 any-miotts-candle = { workspace = true }
 any-miotts-llamacpp = { workspace = true, optional = true }
+any-miotts-coreml = { workspace = true, optional = true }
 candle-miotts = { path = "../../../candle-miotts" }
 tokenizers = { workspace = true }
 serde_json = { workspace = true }
@@ -33,8 +34,11 @@ candle-metal = ["any-miotts-candle/metal"]
 llamacpp = ["dep:any-miotts-llamacpp"]
 llamacpp-opencl = ["llamacpp", "any-miotts-llamacpp/opencl"]
 
+# CoreML backend (MioCodec only, Apple ANE)
+coreml = ["dep:any-miotts-coreml"]
+
 # Platform meta-features
-apple = ["candle-metal"]
+apple = ["candle-metal", "coreml"]
 desktop-nvidia = ["candle-cuda"]
 android-qualcomm = ["llamacpp-opencl"]
 

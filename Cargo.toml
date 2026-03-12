@@ -4,6 +4,7 @@ members = [
     "crates/core",
     "crates/candle-backend",
     "crates/llamacpp-backend",
+    "crates/coreml-backend",
     "crates/any-miotts",
 ]
 
@@ -17,6 +18,7 @@ repository = "https://github.com/m96-chan/any-miotts"
 any-miotts-core = { path = "crates/core" }
 any-miotts-candle = { path = "crates/candle-backend" }
 any-miotts-llamacpp = { path = "crates/llamacpp-backend" }
+any-miotts-coreml = { path = "crates/coreml-backend" }
 candle-core = { version = "0.9" }
 candle-nn = { version = "0.9" }
 safetensors = "0.5"

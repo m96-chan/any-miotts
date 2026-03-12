@@ -17,6 +17,11 @@ pub use any_miotts_llamacpp::backend::{LlamaCppBackend, LlamaCppConfig};
 #[cfg(feature = "llamacpp")]
 pub use any_miotts_llamacpp::discovery as llamacpp_discovery;
 
+#[cfg(feature = "coreml")]
+pub use any_miotts_coreml::backend::CoreMlBackend;
+#[cfg(feature = "coreml")]
+pub use any_miotts_coreml::discovery as coreml_discovery;
+
 use std::path::Path;
 
 use tracing::info;
@@ -64,6 +69,20 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
             llamacpp.device_info()
         );
         backends.push(Box::new(llamacpp));
+    }
+
+    // When the coreml feature is enabled, add a CoreMlBackend for MioCodec.
+    // On Apple Silicon this offloads MioCodec decoding to the Apple Neural
+    // Engine (ANE) via CoreML, freeing the GPU for LFM2.
+    #[cfg(feature = "coreml")]
+    {
+        let coreml = CoreMlBackend::with_defaults();
+        info!(
+            "CoreML backend available: {} ({})",
+            coreml.name(),
+            coreml.device_info()
+        );
+        backends.push(Box::new(coreml));
     }
 
     let paths = first_paths

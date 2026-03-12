@@ -1,0 +1,4 @@
+coremltools>=7.0
+torch>=2.0
+safetensors>=0.4
+numpy>=1.24

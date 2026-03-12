@@ -11,22 +11,6 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
-  # ---------- Feature flag matrix ----------
-  # Tests multiple feature combinations to ensure each backend compiles
-  # and the core tests pass under every configuration.
-  #
-  # Feature flags available:
-  #   candle-cpu   (default) — Candle backend, CPU-only
-  #   candle-cuda           — Candle backend with CUDA acceleration (check-only in CI, no GPU)
-  #   candle-metal          — Candle backend with Metal acceleration (macOS only)
-  #   llamacpp              — llama.cpp backend for LFM2 (GGUF quantised)
-  #   llamacpp-opencl       — llama.cpp with OpenCL GPU offload
-  #   coreml                — CoreML backend for MioCodec (Apple ANE)
-  #   qnn                   — QNN/TFLite backend for MioCodec (Qualcomm Hexagon NPU)
-  #   apple                 — meta: candle-metal + coreml
-  #   desktop-nvidia        — meta: candle-cuda
-  #   android-qualcomm      — meta: llamacpp-opencl + qnn
-
   check:
     name: "check (${{ matrix.name }})"
     runs-on: ubuntu-latest
@@ -36,22 +20,25 @@ jobs:
         include:
           - name: default (candle-cpu)
             features: ""
-            cargo_args: ""
+            check_only: false
           - name: candle-cuda (check only)
             features: "candle-cuda"
-            cargo_args: ""
+            check_only: true
           - name: llamacpp
             features: "llamacpp"
-            cargo_args: ""
+            check_only: false
           - name: coreml
             features: "coreml"
-            cargo_args: ""
+            check_only: false
           - name: qnn
             features: "qnn"
-            cargo_args: ""
+            check_only: false
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -73,25 +60,27 @@ jobs:
       - name: cargo check
         run: |
           if [ -n "${{ matrix.features }}" ]; then
-            cargo check --workspace --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+            cargo check --workspace --features "${{ matrix.features }}"
           else
-            cargo check --workspace ${{ matrix.cargo_args }}
+            cargo check --workspace
           fi
 
       - name: cargo clippy
+        if: ${{ !matrix.check_only }}
         run: |
           if [ -n "${{ matrix.features }}" ]; then
-            cargo clippy --workspace --all-targets --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+            cargo clippy --workspace --all-targets --features "${{ matrix.features }}"
           else
-            cargo clippy --workspace --all-targets ${{ matrix.cargo_args }}
+            cargo clippy --workspace --all-targets
           fi
 
       - name: cargo test
+        if: ${{ !matrix.check_only }}
         run: |
           if [ -n "${{ matrix.features }}" ]; then
-            cargo test --workspace --features "${{ matrix.features }}" ${{ matrix.cargo_args }}
+            cargo test --workspace --features "${{ matrix.features }}"
           else
-            cargo test --workspace ${{ matrix.cargo_args }}
+            cargo test --workspace
           fi
 
   fmt:

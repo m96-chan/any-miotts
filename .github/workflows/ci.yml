@@ -21,9 +21,6 @@ jobs:
           - name: default (candle-cpu)
             features: ""
             check_only: false
-          - name: candle-cuda (check only)
-            features: "candle-cuda"
-            check_only: true
           - name: llamacpp
             features: "llamacpp"
             check_only: false

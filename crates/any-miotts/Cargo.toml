@@ -1,0 +1,37 @@
+[package]
+name = "any-miotts"
+version = "0.1.0"
+description = "Multi-backend TTS engine with automatic device selection"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+any-miotts-core = { workspace = true }
+any-miotts-candle = { workspace = true }
+candle-miotts = { path = "../../../candle-miotts" }
+tokenizers = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hound = { workspace = true }
+rodio = { version = "0.19", default-features = false, features = ["symphonia-wav"] }
+
+[features]
+default = ["candle-cpu"]
+candle-cpu = ["any-miotts-candle/cpu"]
+candle-cuda = ["any-miotts-candle/cuda"]
+candle-metal = ["any-miotts-candle/metal"]
+
+# Platform meta-features
+apple = ["candle-metal"]
+desktop-nvidia = ["candle-cuda"]
+
+[[example]]
+name = "synthesize"
+path = "../../examples/synthesize.rs"

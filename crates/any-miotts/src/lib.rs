@@ -1,0 +1,75 @@
+//! any-miotts: Multi-backend TTS engine with automatic device selection.
+//!
+//! Wraps candle-miotts and (future) llama.cpp / CoreML / QNN backends,
+//! automatically selecting the best device for each model component.
+
+pub use any_miotts_core::backend::{Backend, ModelComponent, TensorData};
+pub use any_miotts_core::device::{DeviceInfo, DeviceKind};
+pub use any_miotts_core::engine::TtsEngine;
+pub use any_miotts_core::error::TtsError;
+pub use any_miotts_core::sampling::GenerateParams;
+
+pub use any_miotts_candle::backend::CandleBackend;
+pub use any_miotts_candle::discovery::discover_devices;
+
+use std::path::Path;
+
+use tracing::info;
+
+/// Initialize the TTS engine with automatic backend/device selection.
+///
+/// 1. Discovers available devices (CUDA, Metal, CPU)
+/// 2. Creates a CandleBackend for the best device
+/// 3. Downloads models if needed
+/// 4. Loads all model components
+/// 5. Computes speaker embedding from reference wav
+pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
+    info!("Initializing any-miotts engine...");
+
+    // Discover devices and pick the best one
+    let devices = discover_devices();
+    let (device_info, device) = devices.into_iter().next().unwrap(); // Best device is first
+    info!("Selected device: {}", device_info);
+
+    // Create backend and download models
+    let mut backend = CandleBackend::new(device_info, device);
+    backend.ensure_models().await?;
+
+    // Load tokenizer
+    let paths = backend.paths_ref()
+        .ok_or_else(|| TtsError::Model("Models not downloaded".into()))?;
+    let tokenizer = tokenizers::Tokenizer::from_file(&paths.lfm2_tokenizer)
+        .map_err(|e| TtsError::Model(format!("Tokenizer: {e}")))?;
+    info!("Tokenizer loaded ({} tokens)", tokenizer.get_vocab_size(true));
+
+    // Read LFM2 config for eos_token_id
+    let config_str = std::fs::read_to_string(&paths.lfm2_config)
+        .map_err(|e| TtsError::Model(format!("Read LFM2 config: {e}")))?;
+    let lfm2_config: candle_miotts::models::config::Lfm2Config =
+        serde_json::from_str(&config_str)
+            .map_err(|e| TtsError::Model(format!("Parse LFM2 config: {e}")))?;
+
+    // Read MioCodec config for sample_rate
+    let miocodec_config_str = std::fs::read_to_string(&paths.miocodec_config)
+        .map_err(|e| TtsError::Model(format!("Read MioCodec config: {e}")))?;
+    let miocodec_config = candle_miotts::models::config::MioCodecConfig::from_yaml(&miocodec_config_str);
+
+    let eos_token_id = lfm2_config.eos_token_id;
+    let sample_rate = miocodec_config.sample_rate;
+
+    // Build engine
+    let reference_wav = reference_wav.to_path_buf();
+    let engine = tokio::task::spawn_blocking(move || {
+        TtsEngine::build(
+            vec![Box::new(backend)],
+            &reference_wav,
+            tokenizer,
+            eos_token_id,
+            sample_rate,
+        )
+    })
+    .await
+    .map_err(|e| TtsError::Model(format!("Engine init join error: {e}")))?;
+
+    engine
+}

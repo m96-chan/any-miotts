@@ -1,0 +1,14 @@
+[package]
+name = "any-miotts-core"
+version = "0.1.0"
+description = "Core traits, scheduler, and engine for any-miotts multi-backend TTS"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokenizers = { workspace = true }
+hound = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

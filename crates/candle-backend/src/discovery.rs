@@ -60,19 +60,42 @@ fn cpu_name() -> String {
     "CPU".to_string()
 }
 
-/// Try to get the CUDA device name via cudarc.
+/// Try to get the CUDA device name via nvidia-smi.
 #[cfg(feature = "cuda")]
 fn cuda_device_name(ordinal: usize) -> Option<String> {
-    // cudarc exposes device name through CudaDevice
-    // We try to get it; if unavailable, return None
-    let dev = cudarc::driver::CudaDevice::new(ordinal).ok()?;
-    Some(dev.name().ok().unwrap_or_else(|| format!("CUDA:{ordinal}")))
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name",
+            "--format=csv,noheader",
+            &format!("--id={ordinal}"),
+        ])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    None
 }
 
-/// Try to get the CUDA device total memory in bytes.
+/// Try to get the CUDA device total memory in bytes via nvidia-smi.
 #[cfg(feature = "cuda")]
 fn cuda_device_memory(ordinal: usize) -> Option<u64> {
-    let dev = cudarc::driver::CudaDevice::new(ordinal).ok()?;
-    // total_memory returns Result<usize>
-    dev.total_memory().ok().map(|m| m as u64)
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=memory.total",
+            "--format=csv,noheader,nounits",
+            &format!("--id={ordinal}"),
+        ])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // nvidia-smi reports in MiB
+        s.parse::<u64>().ok().map(|mib| mib * 1024 * 1024)
+    } else {
+        None
+    }
 }

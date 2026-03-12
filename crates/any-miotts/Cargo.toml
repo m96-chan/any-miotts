@@ -13,7 +13,7 @@ any-miotts-candle = { workspace = true }
 any-miotts-llamacpp = { workspace = true, optional = true }
 any-miotts-coreml = { workspace = true, optional = true }
 any-miotts-qnn = { workspace = true, optional = true }
-candle-miotts = { path = "../../../candle-miotts" }
+candle-miotts = { workspace = true }
 tokenizers = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

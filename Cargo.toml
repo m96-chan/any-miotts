@@ -21,6 +21,7 @@ any-miotts-candle = { path = "crates/candle-backend" }
 any-miotts-llamacpp = { path = "crates/llamacpp-backend" }
 any-miotts-coreml = { path = "crates/coreml-backend" }
 any-miotts-qnn = { path = "crates/qnn-backend" }
+candle-miotts = { git = "https://github.com/m96-chan/candle-miotts.git" }
 candle-core = { version = "0.9" }
 candle-nn = { version = "0.9" }
 safetensors = "0.5"

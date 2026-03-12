@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 any-miotts-core = { workspace = true }
-candle-miotts = { path = "../../../candle-miotts" }
+candle-miotts = { workspace = true }
 candle-core = { workspace = true }
 candle-nn = { workspace = true }
 safetensors = { workspace = true }

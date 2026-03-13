@@ -279,8 +279,18 @@ impl Backend for CandleBackend {
             .forward(&ssl_features)
             .map_err(|e| TtsError::Inference(format!("GlobalEncoder forward: {e}")))?;
 
-        // Return as Native tensor for zero-copy within candle backend
-        Ok(TensorData::Native(Box::new(embedding)))
+        // Return as F32 for cross-backend compatibility and cache serialization.
+        // The embedding is only 128 floats (512 bytes) so copy overhead is negligible.
+        let data = embedding
+            .flatten_all()
+            .map_err(|e| TtsError::Inference(format!("Flatten embedding: {e}")))?
+            .to_vec1::<f32>()
+            .map_err(|e| TtsError::Inference(format!("Embedding to vec: {e}")))?;
+        let dim = data.len();
+        Ok(TensorData::F32 {
+            data,
+            shape: vec![dim],
+        })
     }
 
     fn lfm2_prefill(

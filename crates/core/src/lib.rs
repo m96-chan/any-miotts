@@ -5,3 +5,4 @@ pub mod error;
 pub mod sampling;
 pub mod scheduler;
 pub mod sentence;
+pub mod speaker_cache;

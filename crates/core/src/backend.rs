@@ -41,7 +41,7 @@ pub enum TensorData {
         shape: Vec<usize>,
     },
     /// Backend-native tensor (zero-copy within same backend).
-    Native(Box<dyn Any + Send>),
+    Native(Box<dyn Any + Send + Sync>),
 }
 
 /// Result of a benchmark run for a specific component.

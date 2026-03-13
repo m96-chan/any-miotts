@@ -130,15 +130,22 @@ pub async fn initialize(reference_wav: &Path) -> Result<TtsEngine, TtsError> {
     let eos_token_id = lfm2_config.eos_token_id;
     let sample_rate = miocodec_config.sample_rate;
 
+    // Speaker embedding cache directory: next to reference wav or MIOTTS_CACHE_DIR
+    let cache_dir = std::env::var("MIOTTS_CACHE_DIR")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| reference_wav.parent().map(|p| p.to_path_buf()));
+
     // Build engine (auto-assigns components to best backends)
     let reference_wav = reference_wav.to_path_buf();
     let engine = tokio::task::spawn_blocking(move || {
-        TtsEngine::build(
+        TtsEngine::build_with_cache(
             backends,
             &reference_wav,
             tokenizer,
             eos_token_id,
             sample_rate,
+            cache_dir.as_deref(),
         )
     })
     .await

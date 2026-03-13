@@ -9,6 +9,7 @@ use crate::error::TtsError;
 use crate::sampling::{self, GenerateParams};
 use crate::scheduler::{self, Assignment};
 use crate::sentence::SentenceSplitter;
+use crate::speaker_cache::SpeakerCache;
 
 /// Events emitted by the streaming synthesis API.
 #[derive(Debug, Clone)]
@@ -45,13 +46,29 @@ impl TtsEngine {
     /// 1. Auto-assign components to backends
     /// 2. Ensure models are downloaded
     /// 3. Load models
-    /// 4. Compute speaker embedding from reference wav
+    /// 4. Compute speaker embedding from reference wav (with optional disk cache)
     pub fn build(
         backends: Vec<Box<dyn Backend>>,
         reference_wav: &Path,
         tokenizer: tokenizers::Tokenizer,
         eos_token_id: u32,
         sample_rate: usize,
+    ) -> Result<Self, TtsError> {
+        Self::build_with_cache(backends, reference_wav, tokenizer, eos_token_id, sample_rate, None)
+    }
+
+    /// Build a TtsEngine with an optional speaker embedding cache directory.
+    ///
+    /// When `cache_dir` is `Some`, the speaker embedding will be loaded from
+    /// disk if a matching cache entry exists, skipping the expensive
+    /// WavLM+GlobalEncoder computation.
+    pub fn build_with_cache(
+        backends: Vec<Box<dyn Backend>>,
+        reference_wav: &Path,
+        tokenizer: tokenizers::Tokenizer,
+        eos_token_id: u32,
+        sample_rate: usize,
+        cache_dir: Option<&Path>,
     ) -> Result<Self, TtsError> {
         let assignment = scheduler::auto_assign(&backends)?;
 
@@ -60,25 +77,51 @@ impl TtsEngine {
         for (&component, &backend_idx) in &assignment.map {
             let backend = &backends[backend_idx];
             info!("Loading {} on {}...", component, backend.name());
-            // For Phase 1, model_dir is unused; CandleBackend handles download internally
             let model = backend.load_model(component, Path::new(""))?;
             models.insert(component, model);
         }
 
-        // Compute speaker embedding
-        info!(
-            "Computing speaker embedding from {}...",
-            reference_wav.display()
-        );
-        let spk_backend_idx = assignment.map[&ModelComponent::SpeakerEncoder];
-        let spk_model = models
-            .get(&ModelComponent::SpeakerEncoder)
-            .ok_or(TtsError::NoBackend(ModelComponent::SpeakerEncoder))?;
+        // Compute or load speaker embedding
+        let cache = cache_dir.map(|d| SpeakerCache::new(d.to_path_buf()));
 
-        let wav_data = load_and_resample_wav(reference_wav)?;
-        let speaker_embedding =
-            backends[spk_backend_idx].encode_speaker(spk_model.as_ref(), &wav_data)?;
-        info!("Speaker embedding computed");
+        // Try loading from cache first
+        let cached = cache
+            .as_ref()
+            .and_then(|c| match c.load(reference_wav) {
+                Ok(Some(emb)) => Some(emb),
+                Ok(None) => None,
+                Err(e) => {
+                    info!("Cache load failed, recomputing: {e}");
+                    None
+                }
+            });
+
+        let speaker_embedding = if let Some(emb) = cached {
+            emb
+        } else {
+            info!(
+                "Computing speaker embedding from {}...",
+                reference_wav.display()
+            );
+            let spk_backend_idx = assignment.map[&ModelComponent::SpeakerEncoder];
+            let spk_model = models
+                .get(&ModelComponent::SpeakerEncoder)
+                .ok_or(TtsError::NoBackend(ModelComponent::SpeakerEncoder))?;
+
+            let wav_data = load_and_resample_wav(reference_wav)?;
+            let embedding =
+                backends[spk_backend_idx].encode_speaker(spk_model.as_ref(), &wav_data)?;
+            info!("Speaker embedding computed");
+
+            // Save to cache
+            if let Some(c) = &cache {
+                if let Err(e) = c.save(reference_wav, &embedding) {
+                    info!("Failed to save speaker embedding cache: {e}");
+                }
+            }
+
+            embedding
+        };
 
         Ok(Self {
             backends,
@@ -119,6 +162,9 @@ impl TtsEngine {
     }
 
     /// Synthesize speech from text. Returns PCM f32 samples at the codec's sample rate.
+    ///
+    /// Uses pipelined execution: LFM2 token generation and MioCodec decoding
+    /// run concurrently in chunks, hiding MioCodec latency behind LFM2 compute.
     pub fn synthesize(&self, text: &str) -> Result<Vec<f32>, TtsError> {
         // Step 1: Build prompt and tokenize
         let prompt = sampling::build_prompt(text);
@@ -129,37 +175,12 @@ impl TtsEngine {
         let input_ids: Vec<u32> = encoding.get_ids().to_vec();
         info!("Tokenized '{}' -> {} tokens", text, input_ids.len());
 
-        // Step 2: Generate codec tokens with LFM2
+        // Step 2+3+4: Pipelined generation + codec decode
         let params = GenerateParams {
             eos_token_id: self.eos_token_id,
             ..GenerateParams::default()
         };
-        let generated = self.generate_tokens(&input_ids, &params)?;
-
-        // Step 3: Extract codec token indices
-        let codec_tokens =
-            sampling::extract_codec_tokens(&generated, &|id| self.tokenizer.id_to_token(id));
-        info!(
-            "Generated {} codec tokens from {} raw tokens",
-            codec_tokens.len(),
-            generated.len()
-        );
-
-        if codec_tokens.is_empty() {
-            return Err(TtsError::Inference("No codec tokens generated".into()));
-        }
-
-        // Step 4: Decode with MioCodec
-        let t_miocodec = std::time::Instant::now();
-        let miocodec_idx = self.assignment.map[&ModelComponent::MioCodec];
-        let miocodec_model = self.models.get(&ModelComponent::MioCodec).unwrap();
-        let pcm = self.backends[miocodec_idx].miocodec_decode(
-            miocodec_model.as_ref(),
-            &codec_tokens,
-            &self.speaker_embedding,
-        )?;
-        let miocodec_ms = t_miocodec.elapsed().as_secs_f64() * 1000.0;
-        info!("MioCodec: {miocodec_ms:.1}ms ({} samples)", pcm.len());
+        let pcm = self.generate_and_decode_pipelined(&input_ids, &params)?;
 
         // Peak-normalize to -1dBFS (0.89)
         let peak = pcm.iter().copied().fold(0.0f32, |a, x| a.max(x.abs()));
@@ -225,7 +246,8 @@ impl TtsEngine {
         rx
     }
 
-    /// Autoregressive token generation using LFM2 backend.
+    /// Autoregressive token generation using LFM2 backend (non-pipelined).
+    #[allow(dead_code)]
     fn generate_tokens(
         &self,
         input_ids: &[u32],
@@ -287,6 +309,185 @@ impl TtsEngine {
             generated.len() as f32 / elapsed
         );
         Ok(generated)
+    }
+
+    /// Default chunk size for pipelined synthesis (in codec tokens).
+    /// ~60 tokens ≈ 2.4 seconds of audio at 25 tokens/sec.
+    const PIPELINE_CHUNK_SIZE: usize = 60;
+
+    /// Pipelined token generation + MioCodec decoding.
+    ///
+    /// Generates LFM2 tokens on the current thread while a worker thread
+    /// decodes completed chunks through MioCodec concurrently.
+    fn generate_and_decode_pipelined(
+        &self,
+        input_ids: &[u32],
+        params: &GenerateParams,
+    ) -> Result<Vec<f32>, TtsError> {
+        let lfm2_idx = self.assignment.map[&ModelComponent::Lfm2];
+        let backend = &self.backends[lfm2_idx];
+        let model = self.models.get(&ModelComponent::Lfm2).unwrap();
+
+        // Prefill
+        let t_prefill = std::time::Instant::now();
+        let (mut state, mut logits) = backend.lfm2_prefill(model.as_ref(), input_ids)?;
+        info!(
+            "Prefill: {} tokens in {:.1}ms",
+            input_ids.len(),
+            t_prefill.elapsed().as_secs_f64() * 1000.0
+        );
+
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            let top5: Vec<String> = indexed[..5.min(indexed.len())]
+                .iter()
+                .map(|(i, v)| format!("{i}={v:.3}"))
+                .collect();
+            debug!("Prefill logits top5: [{}]", top5.join(", "));
+        }
+
+        // Use scoped threads to borrow self across threads
+        let result: Result<Vec<f32>, TtsError> = std::thread::scope(|s| {
+            // Channel for sending codec token chunks to the decoder thread.
+            // Bounded to 2 to limit memory while allowing overlap.
+            let (tx, rx) = mpsc::sync_channel::<Vec<u32>>(2);
+
+            // Decoder thread: receives codec token chunks and decodes via MioCodec
+            let decoder_handle = s.spawn(move || -> Result<Vec<Vec<f32>>, TtsError> {
+                let miocodec_idx = self.assignment.map[&ModelComponent::MioCodec];
+                let miocodec_model = self.models.get(&ModelComponent::MioCodec).unwrap();
+                let mut pcm_chunks = Vec::new();
+
+                while let Ok(chunk) = rx.recv() {
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                    let t = std::time::Instant::now();
+                    let pcm = self.backends[miocodec_idx].miocodec_decode(
+                        miocodec_model.as_ref(),
+                        &chunk,
+                        &self.speaker_embedding,
+                    )?;
+                    info!(
+                        "MioCodec chunk: {} tokens -> {} samples in {:.1}ms",
+                        chunk.len(),
+                        pcm.len(),
+                        t.elapsed().as_secs_f64() * 1000.0
+                    );
+                    pcm_chunks.push(pcm);
+                }
+
+                Ok(pcm_chunks)
+            });
+
+            // Generator: runs on current thread
+            let gen_start = std::time::Instant::now();
+            let mut all_generated = Vec::with_capacity(params.max_tokens);
+            let mut pending_raw = Vec::new();
+            let mut total_codec_sent: usize = 0;
+            let mut send_error = false;
+
+            for step in 0..params.max_tokens {
+                let next_token = sampling::sample_logits(&logits, params);
+
+                if next_token == params.eos_token_id {
+                    info!("EOS at step {step}");
+                    break;
+                }
+                all_generated.push(next_token);
+                pending_raw.push(next_token);
+
+                if step < 3 || step % 100 == 99 {
+                    let elapsed = gen_start.elapsed().as_secs_f32();
+                    info!(
+                        "  step {}: tok/s = {:.1}, elapsed = {:.1}ms, last_id = {next_token}",
+                        step + 1,
+                        (step + 1) as f32 / elapsed,
+                        elapsed * 1000.0
+                    );
+                }
+
+                // Extract codec tokens from pending raw tokens and check chunk size
+                let pending_codec = sampling::extract_codec_tokens(
+                    &pending_raw,
+                    &|id| self.tokenizer.id_to_token(id),
+                );
+
+                if pending_codec.len() >= Self::PIPELINE_CHUNK_SIZE {
+                    info!(
+                        "Sending chunk of {} codec tokens (total sent: {})",
+                        pending_codec.len(),
+                        total_codec_sent + pending_codec.len()
+                    );
+                    total_codec_sent += pending_codec.len();
+                    pending_raw.clear();
+                    if tx.send(pending_codec).is_err() {
+                        send_error = true;
+                        break;
+                    }
+                }
+
+                logits =
+                    backend.lfm2_decode_step(model.as_ref(), state.as_mut(), next_token)?;
+            }
+
+            let elapsed = gen_start.elapsed().as_secs_f32();
+            info!(
+                "Generated {} tokens in {:.2}s ({:.1} tok/s)",
+                all_generated.len(),
+                elapsed,
+                all_generated.len() as f32 / elapsed
+            );
+
+            // Send remaining tokens
+            if !send_error && !pending_raw.is_empty() {
+                let remaining_codec = sampling::extract_codec_tokens(
+                    &pending_raw,
+                    &|id| self.tokenizer.id_to_token(id),
+                );
+                if !remaining_codec.is_empty() {
+                    total_codec_sent += remaining_codec.len();
+                    let _ = tx.send(remaining_codec);
+                }
+            }
+
+            info!(
+                "Generated {} codec tokens from {} raw tokens",
+                total_codec_sent,
+                all_generated.len()
+            );
+
+            if total_codec_sent == 0 {
+                drop(tx);
+                return Err(TtsError::Inference("No codec tokens generated".into()));
+            }
+
+            // Drop sender to signal decoder thread to finish
+            drop(tx);
+
+            // Wait for decoder
+            let pcm_chunks = decoder_handle
+                .join()
+                .map_err(|_| TtsError::Inference("MioCodec decoder thread panicked".into()))??;
+
+            // Concatenate all PCM chunks
+            let total_samples: usize = pcm_chunks.iter().map(|c| c.len()).sum();
+            let mut pcm = Vec::with_capacity(total_samples);
+            for chunk in pcm_chunks {
+                pcm.extend(chunk);
+            }
+
+            info!(
+                "MioCodec total: {} samples ({:.2}s)",
+                pcm.len(),
+                pcm.len() as f32 / self.sample_rate as f32
+            );
+
+            Ok(pcm)
+        });
+
+        result
     }
 }
 

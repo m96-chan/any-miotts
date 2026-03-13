@@ -16,7 +16,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
-use tracing::info;
+use tracing::{debug, info};
 
 use any_miotts_core::backend::{
     Backend, BenchmarkResult, Lfm2State, LoadedModel, ModelComponent, TensorData,
@@ -51,10 +51,15 @@ impl Default for LlamaCppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(99);
+        let auto_threads = super::discovery::optimal_thread_count();
         let n_threads = std::env::var("MIOTTS_THREADS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(4);
+            .unwrap_or(auto_threads);
+        info!(
+            "LlamaCpp config: gpu_layers={}, threads={} (auto={})",
+            n_gpu_layers, n_threads, auto_threads
+        );
         Self {
             n_gpu_layers,
             n_ctx: 4096,
@@ -297,6 +302,20 @@ impl Backend for LlamaCppBackend {
         // Extract logits for the last token.
         let logits = extract_logits(&ctx, (seq_len - 1) as i32, loaded.vocab_size)?;
 
+        // Log llama.cpp internal timings
+        let mut ctx = ctx;
+        let timings = ctx.timings();
+        info!(
+            "LFM2 prefill: {} tokens in {:.1}ms ({:.1} tok/s)",
+            timings.n_p_eval(),
+            timings.t_p_eval_ms(),
+            if timings.t_p_eval_ms() > 0.0 {
+                timings.n_p_eval() as f64 / timings.t_p_eval_ms() * 1000.0
+            } else {
+                0.0
+            },
+        );
+
         let state = LlamaCppLfm2State {
             ctx: Mutex::new(LlamaCppContextInner { ctx }),
             offset: seq_len,
@@ -344,6 +363,20 @@ impl Backend for LlamaCppBackend {
         let logits = extract_logits(&guard.ctx, 0, loaded.vocab_size)?;
 
         llama_state.offset += 1;
+
+        // Log per-step timing every 50 tokens and final summary
+        if llama_state.offset % 50 == 0 {
+            let timings = guard.ctx.timings();
+            let n_eval = timings.n_eval();
+            let t_eval = timings.t_eval_ms();
+            debug!(
+                "LFM2 decode step {}: {:.1}ms total eval, {:.2}ms/tok ({:.1} tok/s)",
+                llama_state.offset,
+                t_eval,
+                if n_eval > 0 { t_eval / n_eval as f64 } else { 0.0 },
+                if t_eval > 0.0 { n_eval as f64 / t_eval * 1000.0 } else { 0.0 },
+            );
+        }
 
         Ok(logits)
     }

@@ -55,3 +55,8 @@ vendored-openssl = ["dep:openssl"]
 [[example]]
 name = "synthesize"
 path = "../../examples/synthesize.rs"
+
+[[example]]
+name = "debug_vulkan"
+path = "../../examples/debug_vulkan.rs"
+required-features = ["llamacpp"]

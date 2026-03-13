@@ -34,7 +34,9 @@ candle-metal = ["any-miotts-candle/metal"]
 
 # llama.cpp backend (LFM2 only, GGUF quantised)
 llamacpp = ["dep:any-miotts-llamacpp"]
-llamacpp-opencl = ["llamacpp", "any-miotts-llamacpp/opencl"]
+llamacpp-vulkan = ["llamacpp", "any-miotts-llamacpp/vulkan"]
+# Legacy alias
+llamacpp-opencl = ["llamacpp-vulkan"]
 
 # CoreML backend (MioCodec only, Apple ANE)
 coreml = ["dep:any-miotts-coreml"]
@@ -45,7 +47,7 @@ qnn = ["dep:any-miotts-qnn"]
 # Platform meta-features
 apple = ["candle-metal", "coreml"]
 desktop-nvidia = ["candle-cuda"]
-android-qualcomm = ["llamacpp-opencl", "qnn"]
+android-qualcomm = ["llamacpp-vulkan", "qnn"]
 
 # Use vendored OpenSSL for cross-compilation (Android, etc.)
 vendored-openssl = ["dep:openssl"]

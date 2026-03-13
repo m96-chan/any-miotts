@@ -1,7 +1,7 @@
 [package]
 name = "any-miotts-llamacpp"
 version = "0.1.0"
-description = "llama.cpp backend (OpenCL/CPU) for LFM2 inference in any-miotts"
+description = "llama.cpp backend (Vulkan/CPU) for LFM2 inference in any-miotts"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,5 +14,7 @@ tracing = { workspace = true }
 
 [features]
 default = []
-# Enable OpenCL GPU offload (for Qualcomm Adreno, Mali, etc.)
-opencl = []
+# Enable Vulkan GPU offload (for Qualcomm Adreno, Mali, etc.)
+vulkan = ["llama-cpp-2/vulkan"]
+# Legacy alias — maps to vulkan (OpenCL was removed from llama.cpp)
+opencl = ["vulkan"]

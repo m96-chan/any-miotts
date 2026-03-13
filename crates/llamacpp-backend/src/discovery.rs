@@ -1,14 +1,14 @@
 //! Device discovery for the llama.cpp backend.
 //!
-//! Detects whether an OpenCL-capable GPU is available (e.g. Qualcomm Adreno
+//! Detects whether a Vulkan-capable GPU is available (e.g. Qualcomm Adreno
 //! on Android) and falls back to CPU otherwise.
 
 use any_miotts_core::device::{DeviceInfo, DeviceKind};
 
-/// OpenCL GPU detection result.
+/// GPU detection result.
 #[derive(Debug, Clone)]
-pub struct OpenClProbe {
-    /// Whether an OpenCL GPU was found.
+pub struct GpuProbe {
+    /// Whether a GPU was found.
     pub available: bool,
     /// Human-readable device name, if detected.
     pub device_name: Option<String>,
@@ -16,41 +16,33 @@ pub struct OpenClProbe {
     pub memory_bytes: Option<u64>,
 }
 
-/// Probe the system for an OpenCL GPU.
+/// Probe the system for a Vulkan GPU.
 ///
-/// On Android this would query the OpenCL runtime for Adreno/Mali devices.
-/// The current implementation uses llama.cpp's own backend enumeration when
-/// the `opencl` feature is enabled, and returns "not available" otherwise.
-pub fn probe_opencl() -> OpenClProbe {
-    // When compiled with OpenCL support, ask llama.cpp whether GPU offload
-    // is available.  The llama-cpp-2 crate exposes `supports_gpu_offload()`
-    // on the backend handle, which reflects whether any GPU ggml backend
-    // was compiled in.
-    #[cfg(feature = "opencl")]
+/// When the `vulkan` feature is enabled, this asks llama.cpp whether GPU
+/// offload is available (i.e. whether the Vulkan GGML backend was compiled in
+/// and a suitable device was found at runtime).
+pub fn probe_gpu() -> GpuProbe {
+    #[cfg(feature = "vulkan")]
     {
-        // Try to initialise the llama backend just for probing.
-        // If it was already initialised elsewhere this will fail, which is
-        // fine -- we still report OpenCL as potentially available because
-        // the feature flag was set at compile time.
-        if let Ok(backend) = llama_cpp_2::LlamaBackend::init() {
+        use llama_cpp_2::llama_backend::LlamaBackend;
+        if let Ok(backend) = LlamaBackend::init() {
             if backend.supports_gpu_offload() {
-                return OpenClProbe {
+                return GpuProbe {
                     available: true,
-                    device_name: Some("OpenCL GPU (llama.cpp)".into()),
+                    device_name: Some("Vulkan GPU (llama.cpp)".into()),
                     memory_bytes: None,
                 };
             }
         }
-        // Feature enabled but no GPU backend compiled in llama.cpp.
-        return OpenClProbe {
+        return GpuProbe {
             available: false,
             device_name: None,
             memory_bytes: None,
         };
     }
 
-    #[cfg(not(feature = "opencl"))]
-    OpenClProbe {
+    #[cfg(not(feature = "vulkan"))]
+    GpuProbe {
         available: false,
         device_name: None,
         memory_bytes: None,
@@ -59,14 +51,14 @@ pub fn probe_opencl() -> OpenClProbe {
 
 /// Build a [`DeviceInfo`] for the llama.cpp backend.
 ///
-/// Returns an OpenCL GPU device if detected, otherwise CPU.
+/// Returns a Vulkan GPU device if detected, otherwise CPU.
 pub fn discover_device() -> DeviceInfo {
-    let probe = probe_opencl();
+    let probe = probe_gpu();
     if probe.available {
         let name = probe
             .device_name
-            .unwrap_or_else(|| "OpenCL GPU".to_string());
-        let mut info = DeviceInfo::new(DeviceKind::OpenClGpu, name, 0);
+            .unwrap_or_else(|| "Vulkan GPU".to_string());
+        let mut info = DeviceInfo::new(DeviceKind::VulkanGpu, name, 0);
         if let Some(mem) = probe.memory_bytes {
             info = info.with_memory(mem);
         }

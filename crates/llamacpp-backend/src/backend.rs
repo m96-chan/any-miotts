@@ -46,11 +46,20 @@ pub struct LlamaCppConfig {
 
 impl Default for LlamaCppConfig {
     fn default() -> Self {
+        // Allow overriding via env vars for tuning/debugging
+        let n_gpu_layers = std::env::var("MIOTTS_GPU_LAYERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(99);
+        let n_threads = std::env::var("MIOTTS_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
         Self {
-            n_gpu_layers: 99, // offload everything if GPU available
+            n_gpu_layers,
             n_ctx: 4096,
             n_batch: 512,
-            n_threads: 4,
+            n_threads,
             gguf_path: None,
         }
     }
@@ -153,7 +162,7 @@ impl LlamaCppBackend {
 impl Backend for LlamaCppBackend {
     fn name(&self) -> &str {
         if self.device_info.kind.is_gpu() {
-            "llama.cpp-opencl"
+            "llama.cpp-vulkan"
         } else {
             "llama.cpp-cpu"
         }

@@ -180,6 +180,11 @@ fn pick_by_benchmark(
 }
 
 /// Pick the best backend for a component based on static preference scores.
+///
+/// Tie-breaking: when two backends have the same preference score, prefer the
+/// more specialized one (fewer supported components).  A backend that supports
+/// only LFM2 via GGUF quantization is likely faster on CPU than a general
+/// backend running full-precision safetensors.
 fn pick_by_preference(
     candidates: &mut [(usize, &dyn Backend)],
     component: ModelComponent,
@@ -187,7 +192,14 @@ fn pick_by_preference(
     candidates.sort_by(|a, b| {
         let score_a = preference_score(component, a.1.device_info().kind);
         let score_b = preference_score(component, b.1.device_info().kind);
-        score_b.cmp(&score_a)
+        score_b
+            .cmp(&score_a)
+            .then_with(|| {
+                // Fewer supported components = more specialized = preferred
+                a.1.supported_components()
+                    .len()
+                    .cmp(&b.1.supported_components().len())
+            })
     });
     candidates[0].0
 }

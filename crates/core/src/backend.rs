@@ -66,6 +66,28 @@ impl BenchmarkResult {
 pub trait LoadedModel: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// EOS token ID from the model metadata (e.g. GGUF header).
+    /// Returns `None` by default; backends that load from formats with embedded
+    /// vocabulary info (like GGUF) should override this.
+    fn eos_token_id(&self) -> Option<u32> {
+        None
+    }
+
+    /// Tokenize text using the model's embedded tokenizer (e.g. GGUF).
+    /// Returns `None` by default; backends with embedded tokenizers should
+    /// override this so the engine uses the correct tokenizer for the loaded model.
+    fn tokenize(&self, text: &str, add_bos: bool) -> Option<Vec<u32>> {
+        let _ = (text, add_bos);
+        None
+    }
+
+    /// Convert a token ID to its string representation using the model's
+    /// embedded tokenizer. Returns `None` by default.
+    fn id_to_token(&self, id: u32) -> Option<String> {
+        let _ = id;
+        None
+    }
 }
 
 /// Opaque LFM2 generation state (KV caches, conv states).

@@ -123,6 +123,23 @@ impl TtsEngine {
             embedding
         };
 
+        // If the loaded LFM2 model provides an EOS token ID (e.g. from GGUF
+        // metadata), prefer it over the config file value.  This prevents
+        // mismatches when the GGUF was quantised from a different model size
+        // than the config.json describes.
+        let eos_token_id = models
+            .get(&ModelComponent::Lfm2)
+            .and_then(|m| m.eos_token_id())
+            .inspect(|&eos| {
+                if eos != eos_token_id {
+                    info!(
+                        "EOS override: config={} → model metadata={}",
+                        eos_token_id, eos
+                    );
+                }
+            })
+            .unwrap_or(eos_token_id);
+
         Ok(Self {
             backends,
             assignment,
@@ -147,11 +164,7 @@ impl TtsEngine {
     /// Run a short warmup forward pass to JIT-compile GPU kernels.
     pub fn warmup(&self) -> Result<(), TtsError> {
         let prompt = sampling::build_prompt("a");
-        let encoding = self
-            .tokenizer
-            .encode(prompt, false)
-            .map_err(|e| TtsError::Inference(format!("Tokenize: {e}")))?;
-        let input_ids: Vec<u32> = encoding.get_ids().to_vec();
+        let input_ids = self.tokenize_prompt(&prompt)?;
 
         let lfm2_idx = self.assignment.map[&ModelComponent::Lfm2];
         let lfm2_model = self.models.get(&ModelComponent::Lfm2).unwrap();
@@ -161,6 +174,31 @@ impl TtsEngine {
         Ok(())
     }
 
+    /// Tokenize a prompt string, preferring the LFM2 model's embedded tokenizer
+    /// (e.g. from GGUF) over the external tokenizer.json.
+    fn tokenize_prompt(&self, prompt: &str) -> Result<Vec<u32>, TtsError> {
+        // Prefer the loaded model's embedded tokenizer (e.g. GGUF)
+        let lfm2_model = self.models.get(&ModelComponent::Lfm2);
+        if let Some(ids) = lfm2_model.and_then(|m| m.tokenize(prompt, false)) {
+            return Ok(ids);
+        }
+        // Fall back to external tokenizer.json
+        let encoding = self
+            .tokenizer
+            .encode(prompt, false)
+            .map_err(|e| TtsError::Inference(format!("Tokenize: {e}")))?;
+        Ok(encoding.get_ids().to_vec())
+    }
+
+    /// Convert token ID to string, preferring the LFM2 model's embedded tokenizer.
+    fn id_to_token(&self, id: u32) -> Option<String> {
+        let lfm2_model = self.models.get(&ModelComponent::Lfm2);
+        if let Some(s) = lfm2_model.and_then(|m| m.id_to_token(id)) {
+            return Some(s);
+        }
+        self.tokenizer.id_to_token(id)
+    }
+
     /// Synthesize speech from text. Returns PCM f32 samples at the codec's sample rate.
     ///
     /// Uses pipelined execution: LFM2 token generation and MioCodec decoding
@@ -168,11 +206,7 @@ impl TtsEngine {
     pub fn synthesize(&self, text: &str) -> Result<Vec<f32>, TtsError> {
         // Step 1: Build prompt and tokenize
         let prompt = sampling::build_prompt(text);
-        let encoding = self
-            .tokenizer
-            .encode(prompt, false)
-            .map_err(|e| TtsError::Inference(format!("Tokenize: {e}")))?;
-        let input_ids: Vec<u32> = encoding.get_ids().to_vec();
+        let input_ids = self.tokenize_prompt(&prompt)?;
         info!("Tokenized '{}' -> {} tokens", text, input_ids.len());
 
         // Step 2+3+4: Pipelined generation + codec decode
@@ -411,7 +445,7 @@ impl TtsEngine {
                 // Extract codec tokens from pending raw tokens and check chunk size
                 let pending_codec = sampling::extract_codec_tokens(
                     &pending_raw,
-                    &|id| self.tokenizer.id_to_token(id),
+                    &|id| self.id_to_token(id),
                 );
 
                 if pending_codec.len() >= Self::PIPELINE_CHUNK_SIZE {
@@ -444,7 +478,7 @@ impl TtsEngine {
             if !send_error && !pending_raw.is_empty() {
                 let remaining_codec = sampling::extract_codec_tokens(
                     &pending_raw,
-                    &|id| self.tokenizer.id_to_token(id),
+                    &|id| self.id_to_token(id),
                 );
                 if !remaining_codec.is_empty() {
                     total_codec_sent += remaining_codec.len();

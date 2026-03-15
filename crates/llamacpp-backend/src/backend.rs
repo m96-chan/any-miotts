@@ -82,6 +82,7 @@ pub struct LoadedLlamaCppLfm2 {
     model: LlamaModel,
     config: LlamaCppConfig,
     vocab_size: i32,
+    eos_token_id: u32,
 }
 
 // SAFETY: LlamaModel and LlamaBackend are thread-safe in practice (the C
@@ -96,6 +97,23 @@ impl LoadedModel for LoadedLlamaCppLfm2 {
     }
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+    fn eos_token_id(&self) -> Option<u32> {
+        Some(self.eos_token_id)
+    }
+    fn tokenize(&self, text: &str, add_bos: bool) -> Option<Vec<u32>> {
+        use llama_cpp_2::model::AddBos;
+        let bos = if add_bos { AddBos::Always } else { AddBos::Never };
+        self.model
+            .str_to_token(text, bos)
+            .ok()
+            .map(|tokens| tokens.into_iter().map(|t| t.0 as u32).collect())
+    }
+    fn id_to_token(&self, id: u32) -> Option<String> {
+        #[allow(deprecated)]
+        self.model
+            .token_to_str(LlamaToken(id as i32), llama_cpp_2::model::Special::Tokenize)
+            .ok()
     }
 }
 
@@ -236,11 +254,14 @@ impl Backend for LlamaCppBackend {
             .map_err(|e| TtsError::Model(format!("Failed to load GGUF model: {e}")))?;
 
         let vocab_size = model.n_vocab();
+        let eos_token = model.token_eos();
+        let eos_token_id = eos_token.0 as u32;
         info!(
-            "LFM2 GGUF loaded: {} layers, {} params, vocab {}",
+            "LFM2 GGUF loaded: {} layers, {} params, vocab {}, eos={}",
             model.n_layer(),
             model.n_params(),
             vocab_size,
+            eos_token_id,
         );
 
         Ok(Box::new(LoadedLlamaCppLfm2 {
@@ -248,6 +269,7 @@ impl Backend for LlamaCppBackend {
             model,
             config: self.config.clone(),
             vocab_size,
+            eos_token_id,
         }))
     }
 
